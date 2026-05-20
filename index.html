@@ -1,0 +1,645 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Timer, Users, Trophy, Play, RotateCcw, Check, X, Keyboard, Code } from 'lucide-react';
+
+// --- KONFIGURASI GAME ---
+const TOTAL_QUESTIONS = 10;
+const TIME_PER_QUESTION = 20;
+
+const PLAYER_CONFIG = [
+  { id: 1, name: "Pemain 1", color: "bg-red-500", lightColor: "bg-red-100", border: "border-red-600", keys: ['Q', 'W', 'E', 'R'] },
+  { id: 2, name: "Pemain 2", color: "bg-blue-500", lightColor: "bg-blue-100", border: "border-blue-600", keys: ['U', 'I', 'O', 'P'] },
+  { id: 3, name: "Pemain 3", color: "bg-green-500", lightColor: "bg-green-100", border: "border-green-600", keys: ['Z', 'X', 'C', 'V'] },
+  { id: 4, name: "Pemain 4", color: "bg-orange-500", lightColor: "bg-orange-100", border: "border-orange-600", keys: ['7', '8', '9', '0'] },
+];
+
+// --- UTILITAS MATEMATIKA ---
+const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+const shuffleArray = (array) => {
+  const newArr = [...array];
+  for (let i = newArr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+  }
+  return newArr;
+};
+
+const generateQuestion = () => {
+  const ops = ['+', '-', 'x', ':'];
+  const op = ops[Math.floor(Math.random() * ops.length)];
+  let a, b, answer;
+
+  switch (op) {
+    case '+':
+      a = getRandomInt(1, 50);
+      b = getRandomInt(1, 50);
+      answer = a + b;
+      break;
+    case '-':
+      a = getRandomInt(20, 100);
+      b = getRandomInt(1, a); // Pastikan hasil positif
+      answer = a - b;
+      break;
+    case 'x':
+      a = getRandomInt(2, 12);
+      b = getRandomInt(2, 12);
+      answer = a * b;
+      break;
+    case ':':
+      b = getRandomInt(2, 12);
+      answer = getRandomInt(2, 12);
+      a = b * answer; // Pastikan pembagian bulat
+      break;
+    default:
+      a = 1; b = 1; answer = 2;
+  }
+
+  // Buat opsi jawaban yang mengecoh
+  let optionsSet = new Set([answer]);
+  while (optionsSet.size < 4) {
+    let offset = getRandomInt(-5, 5);
+    if (offset === 0) offset = 1;
+    let wrongAnswer = answer + offset;
+    // Untuk perkalian/pembagian buat pengecoh yang lebih masuk akal
+    if (op === 'x' || op === ':') {
+      const wrongOffsets = [1, -1, 10, -10, b, -b];
+      wrongAnswer = answer + wrongOffsets[getRandomInt(0, wrongOffsets.length - 1)];
+    }
+    if (wrongAnswer >= 0) optionsSet.add(wrongAnswer);
+  }
+
+  return {
+    text: `${a} ${op} ${b}`,
+    answer: answer,
+    options: shuffleArray(Array.from(optionsSet))
+  };
+};
+
+// Komponen Animasi Tarik Tambang
+const TugOfWarGraphic = ({ pullState }) => {
+  let transformStyle = 'translateX(0px)';
+  let animationStyle = 'tugOfWar 2s ease-in-out infinite';
+
+  if (pullState === 'left') {
+    transformStyle = 'translateX(-60px)';
+    animationStyle = 'none'; // Matikan animasi wobble saat ditarik
+  } else if (pullState === 'right') {
+    transformStyle = 'translateX(60px)';
+    animationStyle = 'none'; // Matikan animasi wobble saat ditarik
+  }
+
+  return (
+    <div className="w-full flex justify-center mb-2 relative overflow-hidden pointer-events-none">
+      <style>
+        {`
+          @keyframes tugOfWar {
+            0%, 100% { transform: translateX(0px); }
+            25% { transform: translateX(-15px); }
+            75% { transform: translateX(15px); }
+          }
+          @keyframes strain {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(3deg); }
+          }
+        `}
+      </style>
+      <div className="flex items-center justify-center w-full max-w-md">
+        {/* SVG Canvas */}
+        <svg viewBox="0 0 400 130" className="w-full h-28 md:h-32 drop-shadow-md">
+          <g 
+            style={{ 
+              transform: transformStyle, 
+              animation: animationStyle,
+              transition: 'transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+            }}
+          >
+            {/* Tali */}
+            <path d="M 40 80 Q 200 95 360 80" fill="none" stroke="#8B4513" strokeWidth="8" strokeLinecap="round" />
+            
+            {/* Bendera Tengah */}
+            <g transform="translate(200, 87)">
+              <line x1="0" y1="0" x2="0" y2="-40" stroke="#333" strokeWidth="3" strokeLinecap="round" />
+              <path d="M 0 -40 L 25 -25 L 0 -10 Z" fill="#facc15" stroke="#ca8a04" strokeWidth="2" strokeLinejoin="round" />
+            </g>
+
+            {/* Karakter Kiri (Tim Merah/Pemain 1 & 3) */}
+            <g stroke="#ef4444" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none" style={{ transformOrigin: '80px 115px', animation: pullState === 'neutral' ? 'strain 1s infinite' : 'none' }}>
+              <circle cx="80" cy="40" r="14" fill="#ef4444" />
+              <line x1="80" y1="54" x2="65" y2="90" />
+              {/* Kaki */}
+              <line x1="65" y1="90" x2="40" y2="120" />
+              <line x1="65" y1="90" x2="90" y2="120" />
+              {/* Tangan menarik tali */}
+              <line x1="75" y1="65" x2="115" y2="84" />
+            </g>
+
+            {/* Karakter Kanan (Tim Biru/Pemain 2 & 4) */}
+            <g stroke="#3b82f6" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none" style={{ transformOrigin: '320px 115px', animation: pullState === 'neutral' ? 'strain 1s infinite reverse' : 'none' }}>
+              <circle cx="320" cy="40" r="14" fill="#3b82f6" />
+              <line x1="320" y1="54" x2="335" y2="90" />
+              {/* Kaki */}
+              <line x1="335" y1="90" x2="310" y2="120" />
+              <line x1="335" y1="90" x2="360" y2="120" />
+              {/* Tangan menarik tali */}
+              <line x1="325" y1="65" x2="285" y2="84" />
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+  );
+};
+
+// --- KOMPONEN BACKGROUND 3D ---
+const Background3D = () => {
+  // Membuat 20 objek acak yang akan melayang di background
+  const shapes = Array.from({ length: 20 }).map((_, i) => ({
+    id: i,
+    left: `${Math.random() * 100}%`,
+    animationDuration: `${15 + Math.random() * 25}s`,
+    animationDelay: `-${Math.random() * 20}s`,
+    type: ['cube', 'sphere', 'math', 'math'][Math.floor(Math.random() * 4)],
+    symbol: ['+', '-', 'x', '÷', '='][Math.floor(Math.random() * 5)],
+    color: ['#ef4444', '#3b82f6', '#10b981', '#facc15', '#a855f7', '#ec4899'][Math.floor(Math.random() * 6)],
+    size: 40 + Math.random() * 60,
+  }));
+
+  return (
+    <div className="fixed inset-0 z-[-1] overflow-hidden bg-gradient-to-br from-indigo-950 via-purple-900 to-slate-900" style={{ perspective: '1000px' }}>
+      <style>{`
+        @keyframes floatAndRotate {
+          0% { transform: translate3d(0, 110vh, -300px) rotateX(0deg) rotateY(0deg) rotateZ(0deg); opacity: 0; }
+          10% { opacity: 0.9; }
+          90% { opacity: 0.9; }
+          100% { transform: translate3d(0, -20vh, 200px) rotateX(360deg) rotateY(180deg) rotateZ(360deg); opacity: 0; }
+        }
+        .shape-container {
+          position: absolute;
+          bottom: -150px;
+          transform-style: preserve-3d;
+          animation: floatAndRotate linear infinite;
+        }
+        /* Kubus 3D Murni CSS */
+        .cube {
+          width: 100%; height: 100%;
+          position: relative;
+          transform-style: preserve-3d;
+        }
+        .cube-face {
+          position: absolute;
+          width: 100%; height: 100%;
+          border: 2px solid rgba(255, 255, 255, 0.4);
+          background: inherit;
+          box-shadow: inset 0 0 25px rgba(0,0,0,0.3);
+          backdrop-filter: blur(4px);
+        }
+        .front  { transform: rotateY(  0deg) translateZ(var(--tz)); }
+        .right  { transform: rotateY( 90deg) translateZ(var(--tz)); }
+        .back   { transform: rotateY(180deg) translateZ(var(--tz)); }
+        .left   { transform: rotateY(-90deg) translateZ(var(--tz)); }
+        .top    { transform: rotateX( 90deg) translateZ(var(--tz)); }
+        .bottom { transform: rotateX(-90deg) translateZ(var(--tz)); }
+      `}</style>
+
+      {shapes.map(shape => (
+        <div
+          key={shape.id}
+          className="shape-container"
+          style={{
+            left: shape.left,
+            width: shape.size,
+            height: shape.size,
+            animationDuration: shape.animationDuration,
+            animationDelay: shape.animationDelay,
+          }}
+        >
+          {shape.type === 'cube' && (
+            <div className="cube" style={{ '--tz': `${shape.size / 2}px`, background: `${shape.color}50` }}>
+              <div className="cube-face front"></div>
+              <div className="cube-face right"></div>
+              <div className="cube-face back"></div>
+              <div className="cube-face left"></div>
+              <div className="cube-face top"></div>
+              <div className="cube-face bottom"></div>
+            </div>
+          )}
+          {shape.type === 'sphere' && (
+            <div 
+              className="w-full h-full rounded-full"
+              style={{
+                background: `radial-gradient(circle at 30% 30%, ${shape.color}ff, ${shape.color}40)`,
+                boxShadow: `0 20px 40px rgba(0,0,0,0.5), inset -10px -10px 20px rgba(0,0,0,0.3)`,
+              }}
+            />
+          )}
+          {shape.type === 'math' && (
+            <div 
+              className="w-full h-full flex items-center justify-center font-extrabold"
+              style={{
+                fontSize: shape.size * 1.5,
+                color: shape.color,
+                textShadow: `3px 3px 0px #fff, 6px 6px 0px rgba(0,0,0,0.2)`,
+              }}
+            >
+              {shape.symbol}
+            </div>
+          )}
+        </div>
+      ))}
+      
+      {/* Lantai Grid 3D Luar Angkasa */}
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_2px,transparent_2px),linear-gradient(90deg,rgba(255,255,255,0.05)_2px,transparent_2px)] bg-[size:60px_60px] [transform:rotateX(70deg)_translateY(-50px)_scale(2)] origin-bottom opacity-40 pointer-events-none"></div>
+    </div>
+  );
+};
+
+export default function App() {
+  const [gameState, setGameState] = useState('menu'); // menu, playing, result
+  const [playerCount, setPlayerCount] = useState(1);
+  const [players, setPlayers] = useState([]);
+  
+  const [questions, setQuestions] = useState([]);
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  
+  const [timeLeft, setTimeLeft] = useState(TIME_PER_QUESTION);
+  const [roundActive, setRoundActive] = useState(false);
+  const [showAnswer, setShowAnswer] = useState(false);
+
+  // Timer Ref untuk sinkronisasi
+  const timerRef = useRef(null);
+
+  // Inisialisasi Game
+  const startGame = (count) => {
+    const initialPlayers = PLAYER_CONFIG.slice(0, count).map(p => ({
+      ...p,
+      score: 0,
+      hasAnswered: false,
+      currentAnswer: null,
+      answerStatus: null, // 'correct', 'wrong', null
+      timeTaken: 0
+    }));
+    
+    const newQuestions = Array(TOTAL_QUESTIONS).fill(null).map(generateQuestion);
+    
+    setPlayerCount(count);
+    setPlayers(initialPlayers);
+    setQuestions(newQuestions);
+    setCurrentQIndex(0);
+    setGameState('playing');
+    startRound();
+  };
+
+  const startRound = () => {
+    setPlayers(prev => prev.map(p => ({
+      ...p,
+      hasAnswered: false,
+      currentAnswer: null,
+      answerStatus: null,
+      timeTaken: 0
+    })));
+    setTimeLeft(TIME_PER_QUESTION);
+    setShowAnswer(false);
+    setRoundActive(true);
+  };
+
+  // Logika Timer
+  useEffect(() => {
+    if (roundActive && !showAnswer) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            handleRoundEnd();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [roundActive, showAnswer]);
+
+  // Handle Pemain Menjawab
+  const handleAnswer = useCallback((playerId, optionIndex) => {
+    if (!roundActive || showAnswer) return;
+
+    setPlayers(prevPlayers => {
+      const newPlayers = [...prevPlayers];
+      const playerIndex = newPlayers.findIndex(p => p.id === playerId);
+      
+      if (playerIndex !== -1 && !newPlayers[playerIndex].hasAnswered) {
+        newPlayers[playerIndex] = {
+          ...newPlayers[playerIndex],
+          hasAnswered: true,
+          currentAnswer: questions[currentQIndex].options[optionIndex],
+          timeTaken: TIME_PER_QUESTION - timeLeft
+        };
+      }
+      return newPlayers;
+    });
+  }, [roundActive, showAnswer, currentQIndex, questions, timeLeft]);
+
+  // Keyboard Listener
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!roundActive || showAnswer) return;
+      
+      const key = e.key.toUpperCase();
+      players.forEach(player => {
+        const keyIndex = player.keys.indexOf(key);
+        if (keyIndex !== -1) {
+          handleAnswer(player.id, keyIndex);
+        }
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [players, roundActive, showAnswer, handleAnswer]);
+
+  // Cek jika semua pemain sudah menjawab
+  useEffect(() => {
+    if (roundActive && !showAnswer && players.length > 0) {
+      const allAnswered = players.every(p => p.hasAnswered);
+      if (allAnswered) {
+        clearInterval(timerRef.current);
+        handleRoundEnd();
+      }
+    }
+  }, [players, roundActive, showAnswer]);
+
+  // Evaluasi Ronde
+  const handleRoundEnd = () => {
+    setRoundActive(false);
+    setShowAnswer(true);
+
+    const currentQuestion = questions[currentQIndex];
+
+    setPlayers(prev => prev.map(p => {
+      let scoreChange = 0;
+      let status = 'unanswered';
+
+      if (p.hasAnswered) {
+        if (p.currentAnswer === currentQuestion.answer) {
+          // Bonus kecepatan: sisa waktu * 2
+          const speedBonus = (TIME_PER_QUESTION - p.timeTaken) * 2;
+          scoreChange = 10 + speedBonus;
+          status = 'correct';
+        } else {
+          scoreChange = -1;
+          status = 'wrong';
+        }
+      }
+
+      return {
+        ...p,
+        score: p.score + scoreChange,
+        answerStatus: status
+      };
+    }));
+
+    // Tunggu sebentar lalu lanjut soal berikutnya atau selesai
+    setTimeout(() => {
+      if (currentQIndex < TOTAL_QUESTIONS - 1) {
+        setCurrentQIndex(prev => prev + 1);
+        startRound();
+      } else {
+        setGameState('result');
+      }
+    }, 3000); // Tampilkan jawaban selama 3 detik
+  };
+
+  // --- KOMPONEN UI ---
+
+  if (gameState === 'menu') {
+    return (
+      <div className="min-h-screen bg-transparent flex items-center justify-center p-4 font-sans text-white relative">
+        <Background3D />
+        
+        <div className="bg-slate-800/80 backdrop-blur-xl p-8 rounded-3xl shadow-2xl max-w-md w-full text-center border border-white/10 relative z-10 overflow-hidden transform transition-all hover:scale-[1.02]">
+          {/* Latar Belakang Dekoratif Kaca */}
+          <div className="absolute top-[-50px] right-[-50px] w-32 h-32 bg-blue-500 rounded-full mix-blend-multiply filter blur-2xl opacity-40"></div>
+          <div className="absolute bottom-[-50px] left-[-50px] w-32 h-32 bg-emerald-500 rounded-full mix-blend-multiply filter blur-2xl opacity-40"></div>
+
+          <div className="relative z-10">
+            <div className="flex justify-center mb-4">
+              <div className="bg-slate-900/80 backdrop-blur-sm p-4 rounded-full border-4 border-white/10 shadow-[0_0_20px_rgba(250,204,21,0.3)]">
+                <Trophy size={56} className="text-yellow-400" />
+              </div>
+            </div>
+            
+            <h1 className="text-4xl md:text-5xl font-extrabold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-emerald-300 to-yellow-300 drop-shadow-lg">
+              Adu Cepat Matematika
+            </h1>
+            <p className="text-slate-300 mb-4 text-sm md:text-base drop-shadow-md">Jawab cepat, kumpulkan poin, hindari kesalahan!</p>
+            
+            {/* Nama Pengembang */}
+            <div className="mb-8 inline-flex items-center justify-center gap-2 bg-slate-900/60 border border-white/10 px-4 py-2 rounded-xl shadow-lg backdrop-blur-md">
+              <Code size={16} className="text-slate-400" />
+              <div className="text-sm text-left">
+                <span className="text-slate-400 block text-[10px] uppercase tracking-wider font-semibold">Dikembangkan oleh:</span>
+                <span className="text-emerald-300 font-bold">Jecky Marantika, S.Pd., Gr</span>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold flex items-center justify-center gap-2 mb-2 text-white drop-shadow-md">
+                <Users size={20} /> Pilih Jumlah Pemain
+              </h2>
+              <div className="grid grid-cols-2 gap-3">
+                {[1, 2, 3, 4].map(num => (
+                  <button
+                    key={num}
+                    onClick={() => startGame(num)}
+                    className="bg-slate-700/80 hover:bg-blue-600 transition-all duration-300 p-4 rounded-xl font-bold text-xl border-b-4 border-slate-900/80 hover:border-blue-800 active:border-b-0 active:translate-y-1 flex items-center justify-center gap-2 shadow-lg backdrop-blur-sm hover:shadow-[0_0_20px_rgba(59,130,246,0.5)] text-white"
+                  >
+                    {num} <Users size={20} className={num > 1 ? "text-blue-300" : "text-slate-300"} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="mt-8 text-sm text-slate-200 bg-slate-900/60 p-4 rounded-xl border border-white/10 backdrop-blur-md text-left space-y-2 shadow-inner">
+              <p className="font-semibold text-white mb-2 border-b border-slate-700/50 pb-1">Peraturan Main:</p>
+              <p className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_8px_#60a5fa]"></span> 10 Soal, maksimal 20 detik/soal.</p>
+              <p className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span> Benar = +10 poin & bonus sisa waktu.</p>
+              <p className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-400 shadow-[0_0_8px_#f87171]"></span> Salah = -1 poin.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (gameState === 'result') {
+    const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+    const winner = sortedPlayers[0];
+
+    return (
+      <div className="min-h-screen bg-transparent flex items-center justify-center p-4 font-sans text-white relative">
+        <Background3D />
+        
+        <div className="bg-slate-800/80 backdrop-blur-xl p-8 rounded-3xl shadow-2xl max-w-2xl w-full text-center border border-white/10 relative z-10 transform animate-fade-in-up">
+          <Trophy size={100} className="mx-auto text-yellow-400 mb-6 animate-bounce drop-shadow-[0_0_25px_rgba(250,204,21,0.6)]" />
+          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 drop-shadow-lg text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-300">
+            Permainan Selesai!
+          </h1>
+          
+          {playerCount > 1 ? (
+             <h2 className="text-3xl text-emerald-400 mb-10 font-black drop-shadow-[0_0_10px_rgba(52,211,153,0.3)]">
+               Pemenang: {winner.name} 👑
+             </h2>
+          ) : (
+            <h2 className="text-3xl text-emerald-400 mb-10 font-black drop-shadow-[0_0_10px_rgba(52,211,153,0.3)]">
+              Skor Akhir Anda: {winner.score}
+            </h2>
+          )}
+
+          <div className="space-y-4 mb-10">
+            {sortedPlayers.map((p, idx) => (
+              <div key={p.id} className={`flex justify-between items-center p-5 rounded-xl border-2 ${p.border} ${p.color} bg-opacity-30 backdrop-blur-md shadow-lg transform transition-all hover:scale-105`}>
+                <div className="flex items-center gap-4">
+                  <span className="text-3xl font-black w-10 text-left drop-shadow-md">#{idx + 1}</span>
+                  <span className="text-2xl font-bold drop-shadow-md">{p.name}</span>
+                </div>
+                <span className="text-4xl font-extrabold drop-shadow-md">{p.score} <span className="text-lg font-normal opacity-80">pts</span></span>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setGameState('menu')}
+            className="bg-blue-600/90 hover:bg-blue-500 transition-all duration-300 py-4 px-10 rounded-xl font-bold text-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 inline-flex items-center gap-3 shadow-[0_0_20px_rgba(37,99,235,0.4)] backdrop-blur-sm"
+          >
+            <RotateCcw size={28} /> Kembali ke Menu
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // --- MODE BERMAIN ---
+  const currentQuestion = questions[currentQIndex];
+
+  // Hitung status tarik tambang
+  let pullState = 'neutral';
+  if (showAnswer) {
+    const leftCorrect = players.some(p => (p.id === 1 || p.id === 3) && p.answerStatus === 'correct');
+    const rightCorrect = players.some(p => (p.id === 2 || p.id === 4) && p.answerStatus === 'correct');
+    
+    if (leftCorrect && !rightCorrect) pullState = 'left';
+    else if (rightCorrect && !leftCorrect) pullState = 'right';
+  }
+
+  // Menentukan layout grid berdasarkan jumlah pemain
+  const gridClass = 
+    playerCount === 1 ? 'grid-cols-1 max-w-md mx-auto' : 
+    playerCount === 2 ? 'grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto' : 
+    'grid-cols-1 md:grid-cols-2 max-w-5xl mx-auto';
+
+  return (
+    <div className="min-h-screen bg-transparent p-4 font-sans flex flex-col relative">
+      <Background3D />
+      
+      <div className="relative z-10 flex flex-col h-full w-full max-w-6xl mx-auto">
+        {/* Header Info */}
+        <div className="flex justify-between items-center mb-6 w-full bg-slate-800/80 backdrop-blur-xl p-4 rounded-2xl shadow-lg border border-white/10">
+          <div className="text-white font-bold text-lg bg-slate-900/80 px-5 py-2 rounded-xl shadow-inner border border-white/5">
+            Soal {currentQIndex + 1} / {TOTAL_QUESTIONS}
+          </div>
+          
+          {/* Timer */}
+          <div className={`flex items-center gap-2 text-3xl font-extrabold px-6 py-2 rounded-xl transition-all duration-300 shadow-inner ${
+            timeLeft <= 5 ? 'bg-red-500/90 text-white animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.6)]' : 'bg-slate-900/80 text-emerald-400 border border-white/5'
+          }`}>
+            <Timer size={32} />
+            {timeLeft}s
+          </div>
+        </div>
+
+        {/* Area Soal Tengah */}
+        <div className="flex-1 flex flex-col justify-center w-full mb-8">
+          <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 shadow-[0_20px_50px_rgba(0,0,0,0.3)] text-center transform transition-all duration-300 border-b-8 border-slate-300/60 relative overflow-hidden">
+            
+            {/* Animasi Tarik Tambang */}
+            <TugOfWarGraphic pullState={pullState} />
+
+            <h2 className="text-6xl md:text-8xl font-extrabold text-slate-800 tracking-wider mt-2 drop-shadow-lg relative z-10">
+              {currentQuestion?.text} = <span className="text-blue-600">?</span>
+            </h2>
+          </div>
+        </div>
+
+        {/* Area Pemain (Tombol Jawaban) */}
+        <div className={`grid gap-4 ${gridClass} flex-1`}>
+          {players.map((player) => (
+            <div key={player.id} className={`${player.color} bg-opacity-90 backdrop-blur-md rounded-2xl p-4 shadow-2xl border-b-8 ${player.border} flex flex-col relative overflow-hidden transition-all duration-300 ${player.hasAnswered && !showAnswer ? 'opacity-85 scale-95' : 'hover:-translate-y-1 hover:shadow-[0_15px_30px_rgba(0,0,0,0.4)]'}`}>
+              
+              {/* Overlay Status (Benar/Salah) */}
+              {showAnswer && (
+                <div className={`absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300`}>
+                  {player.answerStatus === 'correct' ? (
+                    <div className="text-emerald-400 flex flex-col items-center animate-bounce drop-shadow-[0_0_15px_rgba(52,211,153,0.8)]">
+                      <Check size={90} strokeWidth={4} />
+                      <span className="text-3xl font-black bg-slate-900/80 px-6 py-2 rounded-full mt-2 shadow-lg">+{10 + (TIME_PER_QUESTION - player.timeTaken)*2}</span>
+                    </div>
+                  ) : player.answerStatus === 'wrong' ? (
+                    <div className="text-red-500 flex flex-col items-center drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]">
+                      <X size={90} strokeWidth={4} />
+                      <span className="text-3xl font-black bg-slate-900/80 px-6 py-2 rounded-full mt-2 shadow-lg">-1</span>
+                    </div>
+                  ) : (
+                    <span className="text-white text-2xl font-bold bg-slate-900/80 px-6 py-3 rounded-full shadow-lg">Habis Waktu</span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-between items-center mb-4 text-white relative z-10">
+                <span className="font-bold text-2xl drop-shadow-md">{player.name}</span>
+                <span className="font-extrabold text-2xl bg-black/40 px-4 py-1.5 rounded-xl shadow-inner backdrop-blur-sm border border-white/10">
+                  Skor: {player.score}
+                </span>
+              </div>
+
+              {/* Tombol Opsi Jawaban */}
+              <div className="grid grid-cols-2 gap-3 flex-1 relative z-10">
+                {currentQuestion?.options.map((option, idx) => {
+                  const isSelected = player.currentAnswer === option;
+                  const isCorrect = showAnswer && option === currentQuestion.answer;
+                  
+                  let buttonStyle = "bg-white/95 hover:bg-white text-slate-800 shadow-[0_8px_15px_rgba(0,0,0,0.2)]";
+                  
+                  if (showAnswer) {
+                    if (isCorrect) buttonStyle = "bg-emerald-500 text-white border-white border-4 scale-105 shadow-[0_0_30px_rgba(16,185,129,0.8)] z-10";
+                    else if (isSelected && !isCorrect) buttonStyle = "bg-red-500 text-white opacity-50 shadow-inner";
+                    else buttonStyle = "bg-white/30 text-slate-800 font-bold backdrop-blur-sm";
+                  } else if (isSelected) {
+                    buttonStyle = "bg-yellow-400 text-slate-900 scale-95 opacity-90 border-4 border-yellow-500 shadow-inner";
+                  }
+
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => handleAnswer(player.id, idx)}
+                      disabled={player.hasAnswered || showAnswer || !roundActive}
+                      className={`relative rounded-xl text-4xl font-extrabold transition-all duration-200 active:scale-95 flex items-center justify-center min-h-[90px] ${!showAnswer && !player.hasAnswered ? 'hover:-translate-y-1' : ''} ${buttonStyle}`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              {/* Status Menunggu */}
+              {!showAnswer && player.hasAnswered && (
+                <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 text-white font-black bg-black/60 backdrop-blur-sm px-6 py-2 rounded-full text-sm animate-pulse shadow-lg border border-white/20 z-10">
+                  Jawaban Terkunci
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
